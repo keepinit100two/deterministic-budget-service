@@ -162,3 +162,9 @@ class WeeklyAllocationResult(BaseModel):
     weekly_leftover_amount: Decimal
     grand_total_written: Decimal
     decision_status: str
+    
+    
+class RawSheetBundle(BaseModel):
+    raw_template_rows: List[Dict[str, Any]]
+    raw_income_rows: List[Dict[str, Any]]
+    raw_control_rows: Dict[str, Any]
