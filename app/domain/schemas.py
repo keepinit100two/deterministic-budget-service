@@ -1,7 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional, List
 from datetime import datetime
+from decimal import Decimal
 
+
+# =========================
+# TEMPLATE SCHEMAS (UNCHANGED)
+# =========================
 
 class IngestRequest(BaseModel):
     event_type: str = Field(
@@ -61,10 +66,10 @@ class Decision(BaseModel):
         description="Optional structured action request",
     )
 
-    # --- Error taxonomy fields (optional, for UI/ops automation) ---
+    # Error taxonomy fields
     error_code: Optional[str] = Field(
         None,
-        description="Machine-readable error code for UI/ops (e.g. MISSING_REQUIRED_FIELD, SECURITY_KEYWORD_DETECTED)",
+        description="Machine-readable error code for UI/ops",
     )
     missing_fields: List[str] = Field(
         default_factory=list,
@@ -85,7 +90,7 @@ class ActionResult(BaseModel):
     action_id: str = Field(..., description="Unique identifier for this action execution")
     event_id: str = Field(..., description="Event the action corresponds to")
     decision_id: str = Field(..., description="Decision that triggered this action")
-    action_type: str = Field(..., description="Type of action executed (or attempted)")
+    action_type: str = Field(..., description="Type of action executed")
     status: str = Field(..., description="Outcome: executed, skipped, noop, failed")
     artifact_path: Optional[str] = Field(
         None,
@@ -93,12 +98,67 @@ class ActionResult(BaseModel):
     )
     reason: str = Field(..., description="Human-readable explanation of what happened")
 
-    # --- Error taxonomy fields (optional, for UI/ops automation) ---
     error_code: Optional[str] = Field(
         None,
-        description="Machine-readable error code for UI/ops if action failed or was skipped for a known reason",
+        description="Machine-readable error code if action failed or was skipped",
     )
     next_steps: Optional[str] = Field(
         None,
         description="Human-readable guidance for operator or caller",
     )
+
+
+# =========================
+# PROJECT SCHEMAS (BUDGET SERVICE)
+# =========================
+
+class TemplateLine(BaseModel):
+    category_id: str
+    display_name: str
+    target_amount: Decimal
+    allocation_order: int
+    is_active: bool
+
+
+class WeeklyIncomeInput(BaseModel):
+    period_id: str
+    income_amount: Decimal
+    status: str
+    notes: Optional[str] = None
+
+
+class OutputBlockRef(BaseModel):
+    block_id: str
+    band_index: int
+    block_index_within_band: int
+    start_row: int
+    end_row: int
+    label_col: int
+    amount_col: int
+
+
+class AllocationRunInput(BaseModel):
+    period_id: str
+    income: WeeklyIncomeInput
+    template_lines: List[TemplateLine]
+    target_block: OutputBlockRef
+
+
+class WeeklyAllocationLine(BaseModel):
+    period_id: str
+    category_id: str
+    display_name: str
+    target_amount: Decimal
+    allocated_amount: Decimal
+    allocation_order: int
+    status: str  # fully_allocated | not_funded | leftover_bucket
+
+
+class WeeklyAllocationResult(BaseModel):
+    period_id: str
+    starting_income: Decimal
+    lines: List[WeeklyAllocationLine]
+    total_allocated_to_categories: Decimal
+    weekly_leftover_amount: Decimal
+    grand_total_written: Decimal
+    decision_status: str
