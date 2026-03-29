@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 from app.domain.schemas import (
     AllocationRunInput,
     OutputBlockRef,
+    RawSheetBundle,
     TemplateLine,
     WeeklyIncomeInput,
 )
@@ -161,6 +162,70 @@ def build_allocation_run_input(
 
     return AllocationRunInput(
         period_id=income.period_id,
+        income=income,
+        template_lines=template_lines,
+        target_block=target_block,
+    )
+
+
+def select_income_row_for_period(
+    raw_income_rows: List[Dict[str, Any]],
+    period_id: str,
+) -> Dict[str, Any]:
+    """
+    Select exactly one pending income row for the requested period.
+    """
+    matches = [
+        row
+        for row in raw_income_rows
+        if str(row.get("period_id", "")).strip() == period_id
+        and str(row.get("status", "")).strip() == "pending"
+    ]
+
+    if not matches:
+        raise ValueError(f"No pending income row found for period_id={period_id}")
+
+    if len(matches) > 1:
+        raise ValueError(f"Multiple pending income rows found for period_id={period_id}")
+
+    return matches[0]
+
+
+def assemble_allocation_run_input_from_bundle(
+    *,
+    raw_bundle: RawSheetBundle,
+    period_id: str,
+    block_id: str,
+    band_index: int,
+    block_index_within_band: int,
+    start_row: int,
+    end_row: int,
+    label_col: int,
+    amount_col: int,
+) -> AllocationRunInput:
+    """
+    Assemble a canonical AllocationRunInput from a raw sheet bundle
+    and explicit output block coordinates.
+    """
+    template_lines = normalize_template_rows(raw_bundle.raw_template_rows)
+
+    selected_income_row = select_income_row_for_period(
+        raw_bundle.raw_income_rows,
+        period_id,
+    )
+    income = normalize_income_row(selected_income_row)
+
+    target_block = build_output_block_ref(
+        block_id=block_id,
+        band_index=band_index,
+        block_index_within_band=block_index_within_band,
+        start_row=start_row,
+        end_row=end_row,
+        label_col=label_col,
+        amount_col=amount_col,
+    )
+
+    return build_allocation_run_input(
         income=income,
         template_lines=template_lines,
         target_block=target_block,
