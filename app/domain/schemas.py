@@ -168,3 +168,18 @@ class RawSheetBundle(BaseModel):
     raw_template_rows: List[Dict[str, Any]]
     raw_income_rows: List[Dict[str, Any]]
     raw_control_rows: Dict[str, Any]
+    
+class SheetWriteAction(BaseModel):
+    action_id: str
+    sheet_name: str
+    cell_ref: str
+    value: str | Decimal
+    action_type: str
+    reason: str
+
+
+class ActionPlan(BaseModel):
+    run_id: str
+    period_id: str
+    target_block: OutputBlockRef
+    write_actions: List[SheetWriteAction]
