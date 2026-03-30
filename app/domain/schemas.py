@@ -183,3 +183,24 @@ class ActionPlan(BaseModel):
     period_id: str
     target_block: OutputBlockRef
     write_actions: List[SheetWriteAction]
+    
+
+class BudgetRunRequest(BaseModel):
+    period_id: str
+    template_values: List[List[Any]]
+    income_values: List[List[Any]]
+    control_values: List[List[Any]]
+    weekly_output_values: List[List[Any]]
+    output_sheet_name: str = "Weekly_Output"
+    income_sheet_name: str = "Income_Input"
+    audit_sheet_name: str = "Audit_Log"
+
+
+class BudgetRunResponse(BaseModel):
+    run_id: str
+    period_id: str
+    decision_status: str
+    total_allocated_to_categories: Decimal
+    weekly_leftover_amount: Decimal
+    grand_total_written: Decimal
+    target_block_id: str

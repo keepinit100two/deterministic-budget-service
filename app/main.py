@@ -6,9 +6,17 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from app.core.auth import require_ops_api_key
 from app.core.idempotency_store import SQLiteIdempotencyStore
 from app.core.logging import get_logger, log_event
-from app.domain.schemas import IngestRequest, IngestResponse, Event
+from app.domain.schemas import (
+    IngestRequest,
+    IngestResponse,
+    Event,
+    BudgetRunRequest,
+    BudgetRunResponse,
+)
 from app.services.router import route_event
 from app.services.actuator import execute_decision
+from app.services.run_budget_cycle import run_budget_cycle
+
 
 app = FastAPI(title="AI Control Plane")
 logger = get_logger()
@@ -20,13 +28,14 @@ idem_store = SQLiteIdempotencyStore()
 def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> IngestResponse:
     """
     Canonical ingest pipeline runner:
-      - enforce idempotency key
-      - reuse or create Event (persistent)
-      - Decide (router)
-      - Act v0 (safe execution)
-      - structured logging
-      - returns {event, decision}
+    - enforce idempotency key
+    - reuse or create Event (persistent)
+    - Decide (router)
+    - Act v0 (safe execution)
+    - structured logging
+    - returns {event, decision}
     """
+
     # Gate 1: Idempotency-Key is required
     if not idempotency_key:
         log_event(
@@ -73,7 +82,9 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
             action_result = execute_decision(existing_event, decision)
             log_event(
                 logger,
-                event_name="action_executed" if action_result.status == "executed" else "action_noop",
+                event_name="action_executed"
+                if action_result.status == "executed"
+                else "action_noop",
                 fields={
                     "action_id": action_result.action_id,
                     "event_id": action_result.event_id,
@@ -142,7 +153,9 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
         action_result = execute_decision(event, decision)
         log_event(
             logger,
-            event_name="action_executed" if action_result.status == "executed" else "action_noop",
+            event_name="action_executed"
+            if action_result.status == "executed"
+            else "action_noop",
             fields={
                 "action_id": action_result.action_id,
                 "event_id": action_result.event_id,
@@ -175,16 +188,70 @@ def health_check():
 
 @app.get("/ops/ping")
 def ops_ping(_: None = Depends(require_ops_api_key)):
-    """
-    Minimal protected ops endpoint.
-    Requires header: X-API-Key: <OPS_API_KEY>
-    """
-    return {"status": "ok"}
+    return {"status": "ok", "message": "ops route reachable"}
 
 
 @app.post("/ingest/api", response_model=IngestResponse)
 def ingest_api(
-    req: IngestRequest,
+    ingest_req: IngestRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-) -> IngestResponse:
-    return _process_ingest(req, idempotency_key)
+):
+    return _process_ingest(ingest_req, idempotency_key)
+
+
+class _InMemorySheetClient:
+    """
+    Minimal in-memory sheet client for endpoint-driven workflow execution.
+    This keeps the endpoint thin and testable before real Google Sheets integration.
+    """
+
+    def __init__(self):
+        self.calls = []
+        self.sheets = {
+            "Audit_Log": [
+                [
+                    "run_id",
+                    "period_id",
+                    "income_amount",
+                    "total_allocated",
+                    "weekly_leftover",
+                    "target_block_id",
+                    "status",
+                    "timestamp",
+                ]
+            ]
+        }
+
+    def write_cell(self, sheet_name, cell_ref, value):
+        self.calls.append((sheet_name, cell_ref, value))
+
+    def get_sheet(self, sheet_name):
+        return self.sheets.get(sheet_name, [])
+
+
+@app.post("/budget/run", response_model=BudgetRunResponse)
+def run_budget(request: BudgetRunRequest):
+    result = run_budget_cycle(
+        template_values=request.template_values,
+        income_values=request.income_values,
+        control_values=request.control_values,
+        weekly_output_values=request.weekly_output_values,
+        period_id=request.period_id,
+        output_sheet_name=request.output_sheet_name,
+        income_sheet_name=request.income_sheet_name,
+        audit_sheet_name=request.audit_sheet_name,
+        sheet_client=_InMemorySheetClient(),
+    )
+
+    allocation_result = result["allocation_result"]
+    run_input = result["run_input"]
+
+    return BudgetRunResponse(
+        run_id=result["run_id"],
+        period_id=run_input.period_id,
+        decision_status=allocation_result.decision_status,
+        total_allocated_to_categories=allocation_result.total_allocated_to_categories,
+        weekly_leftover_amount=allocation_result.weekly_leftover_amount,
+        grand_total_written=allocation_result.grand_total_written,
+        target_block_id=run_input.target_block.block_id,
+    )
