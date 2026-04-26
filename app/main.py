@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 import uuid
 
 from fastapi import FastAPI, Header, HTTPException, Depends
@@ -16,27 +17,16 @@ from app.domain.schemas import (
 from app.services.router import route_event
 from app.services.actuator import execute_decision
 from app.services.run_budget_cycle import run_budget_cycle
+from app.services.google_sheets_client import GoogleSheetsClient
 
 
 app = FastAPI(title="AI Control Plane")
 logger = get_logger()
 
-# Persistent idempotency store (survives restarts)
 idem_store = SQLiteIdempotencyStore()
 
 
 def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> IngestResponse:
-    """
-    Canonical ingest pipeline runner:
-    - enforce idempotency key
-    - reuse or create Event (persistent)
-    - Decide (router)
-    - Act v0 (safe execution)
-    - structured logging
-    - returns {event, decision}
-    """
-
-    # Gate 1: Idempotency-Key is required
     if not idempotency_key:
         log_event(
             logger,
@@ -49,7 +39,6 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
         )
         raise HTTPException(status_code=400, detail="Missing Idempotency-Key header")
 
-    # Gate 2: Reuse existing Event if this key was already processed (persistent)
     existing_event = idem_store.get(idempotency_key)
     if existing_event:
         log_event(
@@ -63,21 +52,8 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
             },
         )
 
-        # Decide
         decision = route_event(existing_event)
-        log_event(
-            logger,
-            event_name="decision_created",
-            fields={
-                "decision_id": decision.decision_id,
-                "event_id": decision.event_id,
-                "route": decision.route,
-                "risk_level": decision.risk_level,
-                "reason": decision.reason,
-            },
-        )
 
-        # Act (safe execution)
         try:
             action_result = execute_decision(existing_event, decision)
             log_event(
@@ -109,7 +85,6 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
 
         return IngestResponse(event=existing_event, decision=decision)
 
-    # Create new canonical Event
     event = Event(
         event_id=str(uuid.uuid4()),
         event_type=ingest_req.event_type,
@@ -131,24 +106,10 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
         },
     )
 
-    # Persist Event for idempotency (survives restart)
     idem_store.set(idempotency_key, event)
 
-    # Decide
     decision = route_event(event)
-    log_event(
-        logger,
-        event_name="decision_created",
-        fields={
-            "decision_id": decision.decision_id,
-            "event_id": decision.event_id,
-            "route": decision.route,
-            "risk_level": decision.risk_level,
-            "reason": decision.reason,
-        },
-    )
 
-    # Act (safe execution)
     try:
         action_result = execute_decision(event, decision)
         log_event(
@@ -200,11 +161,6 @@ def ingest_api(
 
 
 class _InMemorySheetClient:
-    """
-    Minimal in-memory sheet client for endpoint-driven workflow execution.
-    This keeps the endpoint thin and testable before real Google Sheets integration.
-    """
-
     def __init__(self):
         self.calls = []
         self.sheets = {
@@ -229,6 +185,13 @@ class _InMemorySheetClient:
         return self.sheets.get(sheet_name, [])
 
 
+def _build_budget_sheet_client():
+    if os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") and os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID"):
+        return GoogleSheetsClient()
+
+    return _InMemorySheetClient()
+
+
 @app.post("/budget/run", response_model=BudgetRunResponse)
 def run_budget(request: BudgetRunRequest):
     result = run_budget_cycle(
@@ -240,7 +203,7 @@ def run_budget(request: BudgetRunRequest):
         output_sheet_name=request.output_sheet_name,
         income_sheet_name=request.income_sheet_name,
         audit_sheet_name=request.audit_sheet_name,
-        sheet_client=_InMemorySheetClient(),
+        sheet_client=_build_budget_sheet_client(),
     )
 
     allocation_result = result["allocation_result"]
