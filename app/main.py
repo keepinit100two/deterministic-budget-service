@@ -41,26 +41,13 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
 
     existing_event = idem_store.get(idempotency_key)
     if existing_event:
-        log_event(
-            logger,
-            event_name="ingest_duplicate",
-            fields={
-                "idempotency_key": idempotency_key,
-                "event_id": existing_event.event_id,
-                "event_type": existing_event.event_type,
-                "source": existing_event.source,
-            },
-        )
-
         decision = route_event(existing_event)
 
         try:
             action_result = execute_decision(existing_event, decision)
             log_event(
                 logger,
-                event_name="action_executed"
-                if action_result.status == "executed"
-                else "action_noop",
+                event_name="action_executed" if action_result.status == "executed" else "action_noop",
                 fields={
                     "action_id": action_result.action_id,
                     "event_id": action_result.event_id,
@@ -114,9 +101,7 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
         action_result = execute_decision(event, decision)
         log_event(
             logger,
-            event_name="action_executed"
-            if action_result.status == "executed"
-            else "action_noop",
+            event_name="action_executed" if action_result.status == "executed" else "action_noop",
             fields={
                 "action_id": action_result.action_id,
                 "event_id": action_result.event_id,
@@ -190,6 +175,17 @@ def _build_budget_sheet_client():
         return GoogleSheetsClient()
 
     return _InMemorySheetClient()
+
+
+@app.get("/sheets/test")
+def test_sheets():
+    client = GoogleSheetsClient()
+    data = client.get_sheet("Template")
+    return {
+        "status": "connected",
+        "rows_returned": len(data),
+        "sample": data[:3],
+    }
 
 
 @app.post("/budget/run", response_model=BudgetRunResponse)
