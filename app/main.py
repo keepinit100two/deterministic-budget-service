@@ -177,6 +177,14 @@ def _build_budget_sheet_client():
     return _InMemorySheetClient()
 
 
+@app.get("/debug/env")
+def debug_env():
+    return {
+        "has_credentials_json": bool(os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")),
+        "has_spreadsheet_id": bool(os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")),
+    }
+
+
 @app.get("/sheets/test")
 def test_sheets():
     client = GoogleSheetsClient()
