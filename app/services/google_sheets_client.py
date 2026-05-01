@@ -1,5 +1,6 @@
 import json
 import os
+from decimal import Decimal
 from typing import Any, List
 
 from google.oauth2.service_account import Credentials
@@ -10,7 +11,7 @@ class GoogleSheetsClient:
     """
     Real Google Sheets client.
 
-    Preferred Cloud Run configuration:
+    Cloud Run configuration:
     - GOOGLE_SHEETS_CREDENTIALS_JSON
     - GOOGLE_SHEETS_SPREADSHEET_ID
 
@@ -79,6 +80,10 @@ class GoogleSheetsClient:
 
     def write_cell(self, sheet_name: str, cell_ref: str, value: Any) -> None:
         full_range = f"{sheet_name}!{cell_ref}"
+
+        if isinstance(value, Decimal):
+            value = str(value)
+
         body = {"values": [[value]]}
 
         (
