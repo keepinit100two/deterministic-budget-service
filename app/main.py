@@ -12,11 +12,13 @@ from app.domain.schemas import (
     IngestResponse,
     Event,
     BudgetRunRequest,
+    BudgetRunLiveRequest,
     BudgetRunResponse,
 )
 from app.services.router import route_event
 from app.services.actuator import execute_decision
 from app.services.run_budget_cycle import run_budget_cycle
+from app.services.google_sheet_runner import run_budget_cycle_from_google_sheet
 from app.services.google_sheets_client import GoogleSheetsClient
 
 
@@ -47,7 +49,9 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
             action_result = execute_decision(existing_event, decision)
             log_event(
                 logger,
-                event_name="action_executed" if action_result.status == "executed" else "action_noop",
+                event_name="action_executed"
+                if action_result.status == "executed"
+                else "action_noop",
                 fields={
                     "action_id": action_result.action_id,
                     "event_id": action_result.event_id,
@@ -101,7 +105,9 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
         action_result = execute_decision(event, decision)
         log_event(
             logger,
-            event_name="action_executed" if action_result.status == "executed" else "action_noop",
+            event_name="action_executed"
+            if action_result.status == "executed"
+            else "action_noop",
             fields={
                 "action_id": action_result.action_id,
                 "event_id": action_result.event_id,
@@ -171,7 +177,9 @@ class _InMemorySheetClient:
 
 
 def _build_budget_sheet_client():
-    if os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") and os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID"):
+    if os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") and os.getenv(
+        "GOOGLE_SHEETS_SPREADSHEET_ID"
+    ):
         return GoogleSheetsClient()
 
     return _InMemorySheetClient()
@@ -180,15 +188,21 @@ def _build_budget_sheet_client():
 @app.get("/debug/env")
 def debug_env():
     return {
-        "has_credentials_json": bool(os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")),
-        "has_spreadsheet_id": bool(os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")),
+        "has_credentials_json": bool(
+            os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
+        ),
+        "has_spreadsheet_id": bool(
+            os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
+        ),
     }
 
 
 @app.get("/sheets/test")
 def test_sheets():
     client = GoogleSheetsClient()
+
     data = client.get_sheet("Template")
+
     return {
         "status": "connected",
         "rows_returned": len(data),
@@ -208,6 +222,26 @@ def run_budget(request: BudgetRunRequest):
         income_sheet_name=request.income_sheet_name,
         audit_sheet_name=request.audit_sheet_name,
         sheet_client=_build_budget_sheet_client(),
+    )
+
+    allocation_result = result["allocation_result"]
+    run_input = result["run_input"]
+
+    return BudgetRunResponse(
+        run_id=result["run_id"],
+        period_id=run_input.period_id,
+        decision_status=allocation_result.decision_status,
+        total_allocated_to_categories=allocation_result.total_allocated_to_categories,
+        weekly_leftover_amount=allocation_result.weekly_leftover_amount,
+        grand_total_written=allocation_result.grand_total_written,
+        target_block_id=run_input.target_block.block_id,
+    )
+
+
+@app.post("/budget/run-live", response_model=BudgetRunResponse)
+def run_budget_live(request: BudgetRunLiveRequest):
+    result = run_budget_cycle_from_google_sheet(
+        period_id=request.period_id,
     )
 
     allocation_result = result["allocation_result"]

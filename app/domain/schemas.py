@@ -1,49 +1,27 @@
-from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional, List
 from datetime import datetime
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
 
-# =========================
-# TEMPLATE SCHEMAS (UNCHANGED)
-# =========================
 
 class IngestRequest(BaseModel):
-    event_type: str = Field(
-        ...,
-        description="Type of event, e.g. support_request, user_message, task_requested",
-    )
-    source: str = Field(
-        "api",
-        description="Where this event came from, e.g. api, slack, telegram",
-    )
-    actor: Optional[str] = Field(
-        None,
-        description="Who initiated the event (user id/email), if available",
-    )
-    payload: Dict[str, Any] = Field(
-        ...,
-        description="The core content of the event",
-    )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Optional extra context for debugging/routing",
-    )
+    event_type: str = Field(..., description="Type of event")
+    source: str = Field("api", description="Where this event came from")
+    actor: Optional[str] = None
+    payload: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SlackIngestRequest(BaseModel):
-    """
-    Minimal Slack-style payload for adapter demonstration.
-    This is NOT full Slack Events API coverage—just enough to prove reuse.
-    """
-    text: str = Field(..., description="Slack message text")
-    user: Optional[str] = Field(None, description="Slack user id")
-    channel: Optional[str] = Field(None, description="Slack channel id")
-    ts: Optional[str] = Field(None, description="Slack timestamp/message id")
+    text: str
+    user: Optional[str] = None
+    channel: Optional[str] = None
+    ts: Optional[str] = None
 
 
 class Event(BaseModel):
-    event_id: str = Field(..., description="Unique idempotency anchor for this event")
+    event_id: str
     event_type: str
     source: str
     timestamp: datetime
@@ -53,32 +31,15 @@ class Event(BaseModel):
 
 
 class Decision(BaseModel):
-    decision_id: str = Field(..., description="Unique identifier for this decision")
-    event_id: str = Field(..., description="The event this decision was derived from")
-    route: str = Field(
-        ...,
-        description="Chosen route, e.g. ESCALATE_HUMAN, REQUEST_MORE_INFO, CREATE_DRAFT_TICKET",
-    )
-    reason: str = Field(..., description="Human-readable reason for this decision")
-    risk_level: str = Field("low", description="Risk level: low, medium, high")
-    proposed_action: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Optional structured action request",
-    )
-
-    # Error taxonomy fields
-    error_code: Optional[str] = Field(
-        None,
-        description="Machine-readable error code for UI/ops",
-    )
-    missing_fields: List[str] = Field(
-        default_factory=list,
-        description="If request is incomplete, list missing fields here",
-    )
-    next_steps: Optional[str] = Field(
-        None,
-        description="Human-readable guidance for what should happen next",
-    )
+    decision_id: str
+    event_id: str
+    route: str
+    reason: str
+    risk_level: str = "low"
+    proposed_action: Dict[str, Any] = Field(default_factory=dict)
+    error_code: Optional[str] = None
+    missing_fields: List[str] = Field(default_factory=list)
+    next_steps: Optional[str] = None
 
 
 class IngestResponse(BaseModel):
@@ -87,30 +48,16 @@ class IngestResponse(BaseModel):
 
 
 class ActionResult(BaseModel):
-    action_id: str = Field(..., description="Unique identifier for this action execution")
-    event_id: str = Field(..., description="Event the action corresponds to")
-    decision_id: str = Field(..., description="Decision that triggered this action")
-    action_type: str = Field(..., description="Type of action executed")
-    status: str = Field(..., description="Outcome: executed, skipped, noop, failed")
-    artifact_path: Optional[str] = Field(
-        None,
-        description="Where a draft artifact was stored (if any)",
-    )
-    reason: str = Field(..., description="Human-readable explanation of what happened")
+    action_id: str
+    event_id: str
+    decision_id: str
+    action_type: str
+    status: str
+    artifact_path: Optional[str] = None
+    reason: str
+    error_code: Optional[str] = None
+    next_steps: Optional[str] = None
 
-    error_code: Optional[str] = Field(
-        None,
-        description="Machine-readable error code if action failed or was skipped",
-    )
-    next_steps: Optional[str] = Field(
-        None,
-        description="Human-readable guidance for operator or caller",
-    )
-
-
-# =========================
-# PROJECT SCHEMAS (BUDGET SERVICE)
-# =========================
 
 class TemplateLine(BaseModel):
     category_id: str
@@ -151,7 +98,7 @@ class WeeklyAllocationLine(BaseModel):
     target_amount: Decimal
     allocated_amount: Decimal
     allocation_order: int
-    status: str  # fully_allocated | not_funded | leftover_bucket
+    status: str
 
 
 class WeeklyAllocationResult(BaseModel):
@@ -162,13 +109,8 @@ class WeeklyAllocationResult(BaseModel):
     weekly_leftover_amount: Decimal
     grand_total_written: Decimal
     decision_status: str
-    
-    
-class RawSheetBundle(BaseModel):
-    raw_template_rows: List[Dict[str, Any]]
-    raw_income_rows: List[Dict[str, Any]]
-    raw_control_rows: Dict[str, Any]
-    
+
+
 class SheetWriteAction(BaseModel):
     action_id: str
     sheet_name: str
@@ -183,7 +125,13 @@ class ActionPlan(BaseModel):
     period_id: str
     target_block: OutputBlockRef
     write_actions: List[SheetWriteAction]
-    
+
+
+class RawSheetBundle(BaseModel):
+    raw_template_rows: List[Dict[str, Any]]
+    raw_income_rows: List[Dict[str, Any]]
+    raw_control_rows: Dict[str, Any]
+
 
 class BudgetRunRequest(BaseModel):
     period_id: str
@@ -194,6 +142,13 @@ class BudgetRunRequest(BaseModel):
     output_sheet_name: str = "Weekly_Output"
     income_sheet_name: str = "Income_Input"
     audit_sheet_name: str = "Audit_Log"
+
+
+class BudgetRunLiveRequest(BaseModel):
+    period_id: str = Field(
+        ...,
+        description="Budget period to run from live Google Sheets data, e.g. 2026-W12",
+    )
 
 
 class BudgetRunResponse(BaseModel):
