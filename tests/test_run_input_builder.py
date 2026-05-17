@@ -1,7 +1,5 @@
 from decimal import Decimal
 
-import pytest
-
 from app.services.run_input_builder import build_allocation_run_input_from_sheet_values
 
 
@@ -85,7 +83,6 @@ def test_build_allocation_run_input_from_sheet_values_skips_filled_first_block()
 
     weekly_output_values = _empty_sheet()
 
-    # Fill first block completely (0-based columns 0 and 1, rows 0..15)
     for r in range(16):
         weekly_output_values[r][0] = "filled"
         weekly_output_values[r][1] = "filled"
@@ -103,7 +100,7 @@ def test_build_allocation_run_input_from_sheet_values_skips_filled_first_block()
     assert result.target_block.amount_col == 5
 
 
-def test_build_allocation_run_input_from_sheet_values_rejects_partial_block() -> None:
+def test_build_allocation_run_input_from_sheet_values_skips_partially_used_first_block() -> None:
     template_values = [
         ["category_id", "display_name", "target_amount", "allocation_order", "is_active"],
         ["rent", "Rent", "247.50", 1, True],
@@ -132,11 +129,14 @@ def test_build_allocation_run_input_from_sheet_values_rejects_partial_block() ->
     weekly_output_values = _empty_sheet()
     weekly_output_values[0][0] = "partial"
 
-    with pytest.raises(ValueError, match="Partial block detected"):
-        build_allocation_run_input_from_sheet_values(
-            template_values=template_values,
-            income_values=income_values,
-            control_values=control_values,
-            weekly_output_values=weekly_output_values,
-            period_id="2026-W12",
-        )
+    result = build_allocation_run_input_from_sheet_values(
+        template_values=template_values,
+        income_values=income_values,
+        control_values=control_values,
+        weekly_output_values=weekly_output_values,
+        period_id="2026-W12",
+    )
+
+    assert result.target_block.block_id == "band1_block2"
+    assert result.target_block.label_col == 4
+    assert result.target_block.amount_col == 5

@@ -19,30 +19,8 @@ def _is_block_empty(
             if r < len(sheet_values) and c < len(sheet_values[r]):
                 if not _is_cell_empty(sheet_values[r][c]):
                     return False
+
     return True
-
-
-def _is_block_partially_filled(
-    sheet_values: List[List[Any]],
-    start_row: int,
-    start_col: int,
-    block_height: int,
-    block_width: int,
-) -> bool:
-    has_data = False
-    has_empty = False
-
-    for r in range(start_row, start_row + block_height):
-        for c in range(start_col, start_col + block_width):
-            if r < len(sheet_values) and c < len(sheet_values[r]):
-                if _is_cell_empty(sheet_values[r][c]):
-                    has_empty = True
-                else:
-                    has_data = True
-            else:
-                has_empty = True
-
-    return has_data and has_empty
 
 
 def find_first_empty_output_block(
@@ -56,7 +34,13 @@ def find_first_empty_output_block(
     blocks_per_band: int,
 ) -> OutputBlockRef:
     """
-    Scan the Weekly_Output sheet and return the first valid empty block.
+    Scan the Weekly_Output sheet and return the first fully empty block.
+
+    Design decision:
+    - A block with any data is considered occupied and skipped.
+    - A fully empty block is safe to write.
+    - We do not treat partially filled blocks as fatal here because real budget
+      output blocks may use fewer rows than the configured block height.
     """
 
     band_index = 1
@@ -65,17 +49,6 @@ def find_first_empty_output_block(
     while True:
         for block_idx in range(blocks_per_band):
             current_col = start_col + block_idx * (block_width + block_spacing)
-
-            if _is_block_partially_filled(
-                sheet_values,
-                current_row,
-                current_col,
-                block_height,
-                block_width,
-            ):
-                raise ValueError(
-                    f"Partial block detected at band={band_index}, block={block_idx + 1}"
-                )
 
             if _is_block_empty(
                 sheet_values,
@@ -94,6 +67,5 @@ def find_first_empty_output_block(
                     amount_col=current_col + 1,
                 )
 
-        # Move to next band
         band_index += 1
         current_row += block_height
