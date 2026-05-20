@@ -28,7 +28,10 @@ logger = get_logger()
 idem_store = SQLiteIdempotencyStore()
 
 
-def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> IngestResponse:
+def _process_ingest(
+    ingest_req: IngestRequest,
+    idempotency_key: str | None,
+) -> IngestResponse:
     if not idempotency_key:
         log_event(
             logger,
@@ -39,14 +42,19 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
                 "source": ingest_req.source,
             },
         )
-        raise HTTPException(status_code=400, detail="Missing Idempotency-Key header")
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Idempotency-Key header",
+        )
 
     existing_event = idem_store.get(idempotency_key)
+
     if existing_event:
         decision = route_event(existing_event)
 
         try:
             action_result = execute_decision(existing_event, decision)
+
             log_event(
                 logger,
                 event_name="action_executed"
@@ -62,6 +70,7 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
                     "reason": action_result.reason,
                 },
             )
+
         except Exception as e:
             log_event(
                 logger,
@@ -74,7 +83,10 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
                 },
             )
 
-        return IngestResponse(event=existing_event, decision=decision)
+        return IngestResponse(
+            event=existing_event,
+            decision=decision,
+        )
 
     event = Event(
         event_id=str(uuid.uuid4()),
@@ -103,6 +115,7 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
 
     try:
         action_result = execute_decision(event, decision)
+
         log_event(
             logger,
             event_name="action_executed"
@@ -118,6 +131,7 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
                 "reason": action_result.reason,
             },
         )
+
     except Exception as e:
         log_event(
             logger,
@@ -130,7 +144,10 @@ def _process_ingest(ingest_req: IngestRequest, idempotency_key: str | None) -> I
             },
         )
 
-    return IngestResponse(event=event, decision=decision)
+    return IngestResponse(
+        event=event,
+        decision=decision,
+    )
 
 
 @app.get("/health")
@@ -140,13 +157,19 @@ def health_check():
 
 @app.get("/ops/ping")
 def ops_ping(_: None = Depends(require_ops_api_key)):
-    return {"status": "ok", "message": "ops route reachable"}
+    return {
+        "status": "ok",
+        "message": "ops route reachable",
+    }
 
 
 @app.post("/ingest/api", response_model=IngestResponse)
 def ingest_api(
     ingest_req: IngestRequest,
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+    ),
 ):
     return _process_ingest(ingest_req, idempotency_key)
 
@@ -154,6 +177,7 @@ def ingest_api(
 class _InMemorySheetClient:
     def __init__(self):
         self.calls = []
+
         self.sheets = {
             "Audit_Log": [
                 [
@@ -177,8 +201,9 @@ class _InMemorySheetClient:
 
 
 def _build_budget_sheet_client():
-    if os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") and os.getenv(
-        "GOOGLE_SHEETS_SPREADSHEET_ID"
+    if (
+        os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
+        and os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
     ):
         return GoogleSheetsClient()
 
@@ -240,6 +265,29 @@ def run_budget(request: BudgetRunRequest):
 
 @app.post("/budget/run-live", response_model=BudgetRunResponse)
 def run_budget_live(request: BudgetRunLiveRequest):
+    result = run_budget_cycle_from_google_sheet(
+        period_id=request.period_id,
+    )
+
+    allocation_result = result["allocation_result"]
+    run_input = result["run_input"]
+
+    return BudgetRunResponse(
+        run_id=result["run_id"],
+        period_id=run_input.period_id,
+        decision_status=allocation_result.decision_status,
+        total_allocated_to_categories=allocation_result.total_allocated_to_categories,
+        weekly_leftover_amount=allocation_result.weekly_leftover_amount,
+        grand_total_written=allocation_result.grand_total_written,
+        target_block_id=run_input.target_block.block_id,
+    )
+
+
+@app.post("/ops/run-live-budget", response_model=BudgetRunResponse)
+def ops_run_live_budget(
+    request: BudgetRunLiveRequest,
+    _: None = Depends(require_ops_api_key),
+):
     result = run_budget_cycle_from_google_sheet(
         period_id=request.period_id,
     )
